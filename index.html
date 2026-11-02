@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Impostor</title>
+<style>
+:root{--bg:#1b1640;--card:#272059;--ink:#f3f0ff;--mute:#a9a2d6;--acc:#ffd23f;--acc-ink:#2a2200;--bad:#ff6b8f;--line:#3b3380}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 ui-rounded,"Trebuchet MS",system-ui,sans-serif}
+main{max-width:520px;margin:0 auto;padding:24px 16px 56px}
+h1{font-size:40px;margin:12px 0 4px;letter-spacing:-1px;line-height:1}
+h2{font-size:20px;margin:0 0 8px}
+p{margin:6px 0}
+.mute{color:var(--mute)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin:14px 0}
+input,textarea{width:100%;padding:12px;border:2px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;margin:6px 0}
+textarea{min-height:64px;resize:vertical}
+button{font:inherit;font-weight:700;padding:13px 16px;border-radius:12px;border:0;background:var(--acc);color:var(--acc-ink);cursor:pointer;width:100%;margin:6px 0}
+button.ghost{background:transparent;color:var(--ink);border:2px solid var(--line)}
+button.vote{background:var(--acc);color:var(--acc-ink);border:2px solid var(--acc);text-align:left;font-size:18px;font-weight:800;box-shadow:0 4px 0 #ad8a13;transition:transform .12s,box-shadow .12s}
+button.vote:hover{transform:translateY(-2px);box-shadow:0 6px 0 #ad8a13}
+button.vote.on{border-color:#fff;background:#fff;color:var(--bg);box-shadow:0 4px 0 #c9c4df}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.code{font-size:56px;font-weight:800;letter-spacing:10px;text-align:center;color:var(--acc);margin:4px 0}
+.pill{display:inline-block;padding:4px 10px;border-radius:99px;background:var(--bg);border:1px solid var(--line);margin:3px 4px 3px 0;font-size:14px}
+.pill.mod{border-color:var(--acc);color:var(--acc)}
+.pill.off{opacity:.45}
+.pic{width:100%;max-height:60vh;object-fit:contain;border-radius:12px;background:var(--bg);display:block}
+.txt{font-size:30px;font-weight:800;text-align:center;padding:28px 8px;overflow-wrap:anywhere}
+.big{font-size:28px;font-weight:800;margin:4px 0}
+.err{color:var(--bad);font-weight:700;margin:8px 0}
+.lbl{font-weight:700;margin:2px 0 6px}
+.result-banner{text-align:center;padding:22px 16px}
+.result-banner.caught{background:#183c36;border-color:#50c99c}
+.result-banner.escaped{background:#4a2336;border-color:#ff6b8f}
+.result-label{font-size:13px;font-weight:800;letter-spacing:2px;opacity:.8}
+.result-title{font-size:30px;font-weight:900;line-height:1.15;margin:8px 0}
+.caught .result-title{color:#91f2ba}
+.escaped .result-title{color:#ff9ab2}
+.result-detail{font-size:18px}
+.row{display:flex;gap:10px}.row>*{flex:1}
+@media(prefers-reduced-motion:no-preference){.card{animation:in .25s ease-out}@keyframes in{from{opacity:0}to{opacity:1}}}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const app = document.getElementById('app');
+const socket = io();
+const pid = localStorage.pid || (localStorage.pid = Math.random().toString(36).slice(2) + Date.now().toString(36));
+let S = null, err = '', entryMode = '';
+let draft = { a: { t: 'txt', v: '' }, b: { t: 'txt', v: '' } };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const savedRoom = () => JSON.parse(localStorage.room || 'null');
+
+socket.on('connect', () => { const r = savedRoom(); if (r) socket.emit('join', { ...r, pid }); else render(); });
+socket.on('state', (s) => {
+  S = s; err = '';
+  const me = s.players.find((p) => p.id === pid);
+  localStorage.room = JSON.stringify({ code: s.code, name: me ? me.name : '' });
+  render();
+});
+socket.on('err', (m) => { err = m; if (!S) localStorage.removeItem('room'); render(); });
+
+const cardHTML = (c) => c.t === 'img' ? `<img class="pic" alt="Card" src="${c.v}">` : `<div class="txt">${esc(c.v)}</div>`;
+const nm = (id) => { const p = S.players.find((x) => x.id === id); return p ? p.name : '?'; };
+const errHTML = () => err ? `<p class="err" role="alert">${esc(err)}</p>` : '';
+
+function shrink(file) {
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 900 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function editor(k, title) {
+  const d = draft[k];
+  return `<div class="card"><p class="lbl">${title}</p>
+    ${d.t === 'img' ? cardHTML(d) + `<button class="ghost" onclick="clearCard('${k}')">Remove picture</button>`
+      : `<textarea placeholder="Type a word, name or question" oninput="draft.${k}.v=this.value">${esc(d.v)}</textarea>
+         <p class="mute">or choose a picture:</p>
+         <input type="file" accept="image/*" onchange="pick('${k}',this)">`}
+  </div>`;
+}
+async function pick(k, input) {
+  if (!input.files[0]) return;
+  draft[k] = { t: 'img', v: await shrink(input.files[0]) };
+  render();
+}
+function clearCard(k) { draft[k] = { t: 'txt', v: '' }; render(); }
+
+function create() { socket.emit('create', { name: val('name'), pid }); }
+function join() { socket.emit('join', { code: val('code'), name: val('name'), pid }); }
+const val = (id) => document.getElementById(id).value;
+function start() { socket.emit('start', draft); }
+function vote(id) { socket.emit('vote', id); }
+function showEntry(mode) { entryMode = mode; err = ''; render(); }
+function leave() {
+  socket.timeout(1500).emit('leaveRoom', (error) => {
+    if (error) { err = 'Could not leave the room. Check your connection and try again.'; render(); return; }
+    localStorage.removeItem('room');
+    location.reload();
+  });
+}
+
+function render() {
+  if (!S) {
+    const entry = entryMode === 'host'
+      ? `<div class="card"><h2>Host a room</h2><input id="name" maxlength="20" placeholder="Your name" autocomplete="nickname">
+         <button onclick="create()">Host Room</button><button class="ghost" onclick="showEntry('')">Back</button></div>`
+      : entryMode === 'join'
+        ? `<div class="card"><h2>Join a room</h2><input id="name" maxlength="20" placeholder="Your name" autocomplete="nickname">
+           <input id="code" maxlength="4" placeholder="Room code" style="text-transform:uppercase">
+           <button onclick="join()">Join Room</button><button class="ghost" onclick="showEntry('')">Back</button></div>`
+        : `<div class="card"><button onclick="showEntry('host')">Host Room</button>
+           <button class="ghost" onclick="showEntry('join')">Join Room</button></div>`;
+    app.innerHTML = `<h1>Impostor</h1><p class="mute">One moderator, two cards, one impostor.</p>${entry}${errHTML()}`;
+    return;
+  }
+  const mod = S.isMod;
+  const pills = S.players.map((p) => `<span class="pill ${p.id === S.modId ? 'mod' : ''} ${p.online ? '' : 'off'}">${esc(p.name)}${p.id === S.modId ? ' (moderator)' : ''}</span>`).join('');
+  let h = `<p class="mute" style="text-align:center">Room code</p><div class="code">${S.code}</div><div>${pills}</div>`;
+
+  if (S.phase === 'lobby') {
+    if (mod) {
+      h += `<h2 style="margin-top:18px">You are the moderator</h2>
+        <p class="mute">Players get the main card. One random player gets the impostor card. You sit this round out.</p>
+        ${editor('a', 'Main card (most players see this)')}
+        ${editor('b', 'Impostor card (one player sees this)')}
+        <button onclick="start()">Start round</button>`;
+    } else {
+      h += `<div class="card"><h2>Waiting for ${esc(nm(S.modId))}</h2><p class="mute">The moderator is setting up the cards. Keep this screen open.</p></div>`;
+    }
+  }
+
+  if (S.phase === 'playing') {
+    if (mod) {
+      h += `<div class="card"><p class="lbl">Main card</p>${cardHTML(S.cards.a)}</div>
+        <div class="card"><p class="lbl">Impostor card</p>${cardHTML(S.cards.b)}
+        <p class="big">Impostor: ${esc(nm(S.impostorId))}</p></div>
+        ${S.voteStarted ? '' : `<button onclick="socket.emit('startVote')">Start voting</button>`}
+        <p class="mute">Votes in: ${S.voted} of ${S.inRound.length}</p>
+        <button class="ghost" ${!S.voteStarted || S.voted < S.inRound.length ? 'disabled' : ''} onclick="socket.emit('reveal')">
+          ${!S.voteStarted ? 'Start voting first' : S.voted < S.inRound.length ? 'Waiting for all players to vote' : 'Reveal votes'}
+        </button>`;
+    } else if (S.card) {
+      const others = S.players.filter((p) => S.inRound.includes(p.id) && p.id !== pid);
+      h += `<div class="card">${cardHTML(S.card)}</div>
+        <p class="mute">Describe your card out loud without giving it away.</p>
+        ${S.voteStarted
+          ? `${others.map((p) => `<button class="vote ${S.myVote === p.id ? 'on' : ''}" onclick="vote('${p.id}')">${esc(p.name)}</button>`).join('')}
+             <p class="mute">Votes in: ${S.voted} of ${S.inRound.length}. You can change your vote until the moderator reveals the votes.</p>`
+          : '<p class="mute">Wait for the moderator to start voting.</p>'}`;
+    } else {
+      h += `<div class="card"><h2>Round in progress</h2><p class="mute">You joined mid-round. You will play in the next one.</p></div>`;
+    }
+  }
+
+  if (S.phase === 'results') {
+    const R = S.result;
+    h += `<div class="card result-banner ${R.caught ? 'caught' : 'escaped'}" role="status">
+      <p class="result-label">ROUND RESULT</p>
+      <p class="result-title">${R.caught ? 'IMPOSTOR CAUGHT!' : 'IMPOSTOR NOT CAUGHT!'}</p>
+      <p class="result-detail">The impostor was <b>${esc(R.impostor)}</b>.</p></div>
+      <div class="row"><div class="card"><p class="lbl">Main</p>${cardHTML(R.a)}</div><div class="card"><p class="lbl">Impostor</p>${cardHTML(R.b)}</div></div>
+      <div class="card"><p class="lbl">Votes</p>${R.tally.length ? R.tally.map((t) => `<p>${esc(t.name)}: ${t.n}</p>`).join('') : '<p class="mute">No votes were cast.</p>'}</div>`;
+    h += mod ? `<button onclick="socket.emit('next')">Next round (moderator passes on)</button>`
+             : `<p class="mute">Waiting for the moderator to continue.</p>`;
+  }
+
+  app.innerHTML = h + errHTML() + `<button class="ghost" style="margin-top:24px" onclick="leave()">Leave room</button>`;
+}
+render();
+</script>
+</body>
+</html>
