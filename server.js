@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
+const { randomInt } = require('node:crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -106,7 +107,7 @@ io.on('connection', (s) => {
     [a, b].forEach((c) => { if (c.t === 'txt') c.v = c.v.trim().slice(0, 300); });
     r.a = a; r.b = b;
     r.inRound = pool.map((p) => p.id);
-    r.impostorId = pool[Math.floor(Math.random() * pool.length)].id;
+    r.impostorId = pool[randomInt(pool.length)].id;
     r.votes = {}; r.result = null; r.voteStarted = false; r.phase = 'playing'; r.round++;
     sync(r);
   });
@@ -140,6 +141,22 @@ io.on('connection', (s) => {
     const { r, pid } = ctx();
     if (!r || pid !== r.modId || r.phase !== 'results') return;
     rotateMod(r); r.phase = 'lobby'; sync(r);
+  });
+
+  s.on('reorderPlayers', (playerIds) => {
+    const { r, pid } = ctx();
+    if (!r || pid !== r.modId) return s.emit('err', 'Only the moderator can change the player order.');
+    if (r.phase === 'playing') return s.emit('err', 'Player order cannot be changed during a round.');
+    const currentIds = r.players.map((p) => p.id);
+    if (!Array.isArray(playerIds) || playerIds.length !== currentIds.length ||
+      playerIds.some((id) => typeof id !== 'string') ||
+      new Set(playerIds).size !== currentIds.length ||
+      playerIds.some((id) => !currentIds.includes(id))) {
+      return s.emit('err', 'Could not update the player order. Please try again.');
+    }
+    const playersById = new Map(r.players.map((p) => [p.id, p]));
+    r.players = playerIds.map((id) => playersById.get(id));
+    sync(r);
   });
 
   s.on('leaveRoom', (ack) => {

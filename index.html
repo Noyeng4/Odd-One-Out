@@ -26,6 +26,23 @@ button.vote.on{border-color:#fff;background:#fff;color:var(--bg);box-shadow:0 4p
 .pill{display:inline-block;padding:4px 10px;border-radius:99px;background:var(--bg);border:1px solid var(--line);margin:3px 4px 3px 0;font-size:14px}
 .pill.mod{border-color:var(--acc);color:var(--acc)}
 .pill.off{opacity:.45}
+.player-list{margin-top:16px;padding:12px}
+.player-list-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 4px 8px}
+.player-list-heading h2{margin:0}
+.player-row{display:flex;align-items:center;gap:10px;padding:9px 8px;border-top:1px solid var(--line)}
+.player-number{width:26px;height:26px;display:grid;place-items:center;flex:none;border-radius:50%;background:var(--bg);color:var(--mute);font-size:13px;font-weight:800}
+.player-avatar{width:38px;height:38px;display:grid;place-items:center;flex:none;border-radius:12px;background:#5147a0;color:var(--ink);font-size:18px;font-weight:800}
+.player-row.is-mod .player-avatar{background:var(--acc);color:var(--acc-ink)}
+.player-info{flex:1;min-width:0}
+.player-name{font-weight:800;overflow-wrap:anywhere}
+.player-meta{display:flex;align-items:center;gap:6px;color:var(--mute);font-size:12px}
+.role-tag{color:var(--acc);font-weight:800}
+.online-dot{width:8px;height:8px;border-radius:50%;background:#65e6a5}
+.online-dot.offline{background:#817aa6}
+.player-controls{display:flex;gap:4px;flex:none}
+button.order-button{width:36px;height:36px;margin:0;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-size:17px}
+button.order-button:disabled{opacity:.35;cursor:not-allowed}
+.order-hint{margin:8px 4px 2px;color:var(--mute);font-size:12px}
 .pic{width:100%;max-height:60vh;object-fit:contain;border-radius:12px;background:var(--bg);display:block}
 .txt{font-size:30px;font-weight:800;text-align:center;padding:28px 8px;overflow-wrap:anywhere}
 .big{font-size:28px;font-weight:800;margin:4px 0}
@@ -103,6 +120,13 @@ function join() { socket.emit('join', { code: val('code'), name: val('name'), pi
 const val = (id) => document.getElementById(id).value;
 function start() { socket.emit('start', draft); }
 function vote(id) { socket.emit('vote', id); }
+function movePlayer(index, direction) {
+  const players = [...S.players];
+  const target = index + direction;
+  if (!S.isMod || S.phase === 'playing' || target < 0 || target >= players.length) return;
+  [players[index], players[target]] = [players[target], players[index]];
+  socket.emit('reorderPlayers', players.map((player) => player.id));
+}
 function showEntry(mode) { entryMode = mode; err = ''; render(); }
 function leave() {
   socket.timeout(1500).emit('leaveRoom', (error) => {
@@ -127,8 +151,24 @@ function render() {
     return;
   }
   const mod = S.isMod;
-  const pills = S.players.map((p) => `<span class="pill ${p.id === S.modId ? 'mod' : ''} ${p.online ? '' : 'off'}">${esc(p.name)}${p.id === S.modId ? ' (moderator)' : ''}</span>`).join('');
-  let h = `<p class="mute" style="text-align:center">Room code</p><div class="code">${S.code}</div><div>${pills}</div>`;
+  const canReorder = mod && S.phase !== 'playing';
+  const playerRows = S.players.map((p, index) => `<div class="player-row ${p.id === S.modId ? 'is-mod' : ''}">
+    <span class="player-number">${index + 1}</span>
+    <span class="player-avatar" aria-hidden="true">${esc(p.name.slice(0, 1).toUpperCase())}</span>
+    <span class="player-info"><span class="player-name">${esc(p.name)}</span>
+      <span class="player-meta"><span class="online-dot ${p.online ? '' : 'offline'}"></span>${p.online ? 'Online' : 'Offline'}
+        ${p.id === S.modId ? '<span class="role-tag">Moderator</span>' : ''}</span></span>
+    ${canReorder ? `<span class="player-controls">
+      <button class="order-button" aria-label="Move ${esc(p.name)} up" title="Move up" ${index === 0 ? 'disabled' : ''} onclick="movePlayer(${index}, -1)">&#9650;</button>
+      <button class="order-button" aria-label="Move ${esc(p.name)} down" title="Move down" ${index === S.players.length - 1 ? 'disabled' : ''} onclick="movePlayer(${index}, 1)">&#9660;</button>
+    </span>` : ''}
+  </div>`).join('');
+  let h = `<p class="mute" style="text-align:center">Room code</p><div class="code">${S.code}</div>
+    <section class="card player-list" aria-label="Player list">
+      <div class="player-list-heading"><h2>Players</h2><span class="mute">${S.players.length} total</span></div>
+      ${playerRows}
+      ${mod ? `<p class="order-hint">${S.phase === 'playing' ? 'Player order is locked during a round.' : 'Use the arrows to arrange the order. The order also determines who becomes moderator next.'}</p>` : ''}
+    </section>`;
 
   if (S.phase === 'lobby') {
     if (mod) {
