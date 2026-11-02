@@ -1,6 +1,6 @@
 # Impostor
 
-A browser-based multiplayer word and picture game powered by Node.js, Express, and Socket.IO.
+A online browser-based multiplayer word and picture game powered by Node.js, Express, and Socket.IO.
 
 ## Run locally
 
