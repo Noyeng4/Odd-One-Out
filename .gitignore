@@ -1,0 +1,14 @@
+node_modules/
+.env
+.DS_Store
+
+writable/cache/*
+!writable/cache/.gitkeep
+writable/debugbar/*
+!writable/debugbar/.gitkeep
+writable/logs/*
+!writable/logs/.gitkeep
+writable/session/*
+!writable/session/.gitkeep
+writable/uploads/*
+!writable/uploads/.gitkeep
